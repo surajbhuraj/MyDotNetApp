@@ -30,13 +30,41 @@ jobs:
       - name: Run Unit Tests
         run: dotnet test --no-restore --verbosity normal
 
+      - name: Publish Application
+        run: dotnet publish -c Release -o ./publish
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: published-app
+          path: ./publish
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to Production Server
-        run: |
-          echo "Deploying .NET application..."
-          # Add deployment commands here (e.g., SSH into the server, copy files, restart services)
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: published-app
+          path: ./publish
+
+      - name: Deploy to Production Server via SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: /var/www/MyDotnetApp
+        run: |
+          echo "$SSH_PRIVATE_KEY" > private_key && chmod 600 private_key
+          scp -i private_key -r ./publish/* $SERVER_USER@$SERVER_IP:$DEPLOY_PATH
+          ssh -i private_key $SERVER_USER@$SERVER_IP << EOF
+            cd $DEPLOY_PATH
+            systemctl restart mydotnetapp.service
+            echo "Deployment completed successfully!"
+          EOF
+          rm -f private_key
